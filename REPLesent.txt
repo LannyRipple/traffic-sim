@@ -1,0 +1,490 @@
+| \mThe Do of Functional Abstractions.  No How.
+
+
+  * Some Background
+  * It's all plain fun
+  * Traffic Simulator
+  * Having plain fun in traffic
+  * The sum of all traffic
+  * Buying a FABulous snack in traffic
+  * An arrow through the heart of our plain fun
+  * Resources
+
+---
+| \gSome Background
+
+
+       \*\_Type\s                                     \*\_Kind\s
+
+       \cA\s                                        \c*\s
+       String
+       Int
+       List[Double]
+
+
+       \cA => B\s                                   \c* -> *\s
+                                                List[_]
+                                     type EitherA[A] = Either[String,A]
+                                                Semigroup[_]
+
+
+       \cA => B => C\s                              \c* -> * -> *\s
+                                                Either[A,B]
+
+
+      "higher-order"                           "higher-kinded"
+       \c(A => B) => C\s                            \c(* -> *) -> *\s
+                                                Functor[F[_]]
+                                                Contravariant[F[_]]
+                                                Applicative[F[_]]
+                                                Monad[F[_]]
+
+
+       \c(A => B) => (B => C) => (A => C)\s
+
+---
+| \gIt's all plain fun
+
+
+```
+def plainFun(celsius: Double): Double = celsius * 9/5 + 32
+
+def morePlainFun(fahren: Double): Double = (fahren - 32) * 5/9
+
+def loadsOfFAB(t: Double, conv: Double => Double): String =
+  s"Temp $t converts to ${conv(t)}."
+
+val celsiusFun: Double => String = loadsOfFAB(_, plainFun _)
+val fahrenFun: Double => String = loadsOfFAB(_, morePlainFun _)
+
+println( celsiusFun(-40.0) )
+println( celsiusFun(0.0) )
+println( celsiusFun(22.0) )
+println( celsiusFun(37.0) )
+println( celsiusFun(100.0) )
+println("")
+
+
+println( fahrenFun(-40.0) )
+println( fahrenFun(32.0) )
+println( fahrenFun(72.0) )
+println( fahrenFun(98.6) )
+println( fahrenFun(212.0) )
+println("")
+```
+
+---
+| \mTraffic Simulator
+
+```
+class FirstTryCar[C,E,O](chassis: C, engine: E, occupant: O)
+```
+
+--
+
+```
+// Things that move through traffic
+case class Car[A](occupant: A)
+
+case class Person(name: String, age: Int, cash: Double)
+case class Dog(name: String, fleaCount: Int)
+case class Apples(count: Int, cost: Double, sku: String)
+
+type Company = String
+type Secret = String
+type WorkHistory = Map[Company, List[Secret]]
+
+val emptyWorkHistory = Map.empty[Company,List[Secret]]
+
+case class SecurityConsultant(who: Person, workHistory: WorkHistory)
+
+val traffic: List[Car[SecurityConsultant]] =
+    List(
+        Car(SecurityConsultant(
+            Person("Dave", 24, 10.00),
+            Map("Cisco" -> List("cisco123", "BadCoffee"),
+                "Netflix" -> List("OkCoffee")))),
+        Car(SecurityConsultant(
+            Person("Eve", 50, 37.12),
+            Map("Cisco" -> List("cisco123", "NiceGym"),
+                "Amazon" -> List("WeAreBorg"),
+                "GE" -> List("RFIDMoneyGrab")))),
+        Car(SecurityConsultant(
+            Person("Simone Biles", 24, 1.0e6),
+            Map("Amazon" -> List("GoodCoffee"),
+                "SalesForce" -> List("GOATLikeMe")))))
+```
+
+---
+| \mMore plain fun
+
+
+```
+def getName(p: Person): String = p.name
+def getAge(p: Person): Int = p.age
+def getCash(p: Person): Double = p.cash
+
+def scName(sc: SecurityConsultant): String = getName(sc.who)
+def scAge(sc: SecurityConsultant): Int = getAge(sc.who)
+def scSecrets(sc: SecurityConsultant): List[Secret] =
+    sc.workHistory.values.flatten.toList
+```
+
+
+--
+| \mTraffic is not plain fun
+
+A Car[SecurityConsultant] is a SecurityConsultant moving through traffic and thus, since
+SecurityConsultants know secrets, the Car is transporting Secrets and thus we have, some
+where in there, a Car[List[Secret]].
+
+The trouble is we want to have Plain Fun and not have to think about how we are modelling
+things moving through traffic.
+
+
+--
+| \mA solution
+
+We recall Scala adds .map to lots of things to handle \cF[A] => (A => B) => F[B]\s.
+
+---
+| \mHaving plain fun in traffic
+
+```
+case class Car[A](occupant: A) {
+    def map[B](f: A => B): Car[B] = Car.lift(f)(this)
+}
+
+object Car {
+    def lift[A,B](f: A => B): Car[A] => Car[B] =
+        (carA: Car[A]) => Car(f(carA.occupant))
+}
+
+val traffic: List[Car[SecurityConsultant]] =
+    List(
+        Car(SecurityConsultant(
+            Person("Dave", 24, 10.00),
+            Map("Cisco" -> List("cisco123", "BadCoffee"),
+                "Netflix" -> List("OkCoffee")))),
+        Car(SecurityConsultant(
+            Person("Eve", 50, 37.12),
+            Map("Cisco" -> List("cisco123", "NiceGym"),
+                "Amazon" -> List("WeAreBorg"),
+                "GE" -> List("RFIDMoneyGrab")))),
+        Car(SecurityConsultant(
+            Person("Simone Biles", 24, 1.0e6),
+            Map("Amazon" -> List("GoodCoffee"),
+                "SalesForce" -> List("GOATLikeMe")))))
+
+val secretTraffic = traffic.map(car => car.map(scSecrets))
+```
+
+---
+| \mThe sum of all traffic
+
+Wouldn't it be nice if we could learn the sum of all traffic?
+
+```
+case class Car[A](occupant: A) {
+    def map[B](f: A => B): Car[B] = Car(f(this.occupant))
+
+    // How to be sure A's combine?
+    def combine(other: Car[A]) = ???
+}
+```
+
+Our problem is that we don't know if our A's will combine.  If our traffic
+is of type Car[Person] and we map with \c_.age\s we might very much like
+to know the sum of ages in traffic.  If instead we have traffic of type
+Apples and map with \c_.sku\s what would the sum of SKU numbers even mean?
+
+
+--
+| \mcats.Semigroup can help
+
+Cats is a scala library providing many functional abstractions.
+
+Combining things is where cats.Semigroup can help.  With it we can define
+a \ccombine\s on Car[A] only when A itself can be combined.
+
+---
+| \mThe sum of all traffic
+
+```
+import cats.Semigroup
+import cats.instances._
+import cats.syntax.semigroup._
+
+case class Car[A](occupant: A) {
+    def map[B](f: A => B): Car[B] = Car.lift(f)(this)
+}
+
+object Car {
+
+    implicit def carSemiGroup[A: Semigroup]: Semigroup[Car[A]] =
+        new Semigroup[Car[A]] {
+            def combine(a: Car[A], b: Car[A]): Car[A] = Car(a.occupant |+| b.occupant)
+        }
+
+    def lift[A,B](f: A => B): Car[A] => Car[B] =
+        (carA: Car[A]) => Car(f(carA.occupant))
+}
+```
+
+---
+| \mThe sum of all traffic
+
+```
+val traffic: List[Car[SecurityConsultant]] =
+    List(
+        Car(SecurityConsultant(
+            Person("Dave", 24, 10.00),
+            Map("Cisco" -> List("cisco123", "BadCoffee"),
+                "Netflix" -> List("OkCoffee")))),
+        Car(SecurityConsultant(
+            Person("Eve", 50, 37.12),
+            Map("Cisco" -> List("cisco123", "NiceGym"),
+                "Amazon" -> List("WeAreBorg"),
+                "GE" -> List("RFIDMoneyGrab")))),
+        Car(SecurityConsultant(
+            Person("Simone Biles", 24, 1.0e6),
+            Map("Amazon" -> List("GoodCoffee"),
+                "SalesForce" -> List("GOATLikeMe")))))
+
+val workHistorySum: Car[WorkHistory] = {
+    // workHistoryTraffic
+    val wht = traffic.map(car => car.map(sc => sc.workHistory))
+
+    wht.tail.foldLeft(wht.head)(_ |+| _)
+}
+
+println(
+    // eww! .mapValues
+    workHistorySum.occupant.mapValues(_.distinct).mkString("\n")
+)
+println("")
+```
+
+---
+| \mBuying a snack...
+
+So we've seen how to have plain fun in traffic.  But there are other function
+shapes.  What if we want to be plain FABulous?
+
+```
+// plain FABC
+def buySnack(p: Person, a: Apples, count: Int): (Person, Apples) = {
+    val countCount = if (a.count < count) a.count else count
+    val cashCount = (p.cash / a.cost).toInt
+    val countStar = Math.min(countCount, cashCount)
+
+    val pStar = p.copy(cash = p.cash - countStar * a.cost)
+    val aStar = a.copy(count = a.count - countStar)
+
+    pStar -> aStar
+}
+
+val result =
+    buySnack(
+        Person("Dave", 24, 10.00),
+        Apples(10, 1.00, "KS944RUR"),
+        3
+    )
+```
+
+---
+| \mBuying a snack... in traffic?
+
+When we're working with simple types we write simple code.  But we're doing a traffic
+simulation here.  How do we make working with plain functions as painless as possible?
+
+```
+val dave = Person("Dave", 24, 10.00)
+val apples = Apples(10, 1.00, "KS944RUR")
+
+val trafficDave = Car(dave)
+val trafficApples = Car(apples)
+
+// We need something like `lift`.  Car.lift(plainFun)(carA) == carB
+liftFAB(buySnack)(trafficDave, trafficApples, 3)    // error
+```
+
+--
+```
+// Need instead
+liftFAB(buySnack)(trafficDave, trafficApples, Car(3))
+liftFAB(buySnack(_, _, 3)(trafficDave, trafficApples)
+```
+
+---
+| \mBuying a FABulious snack in traffic
+
+We're going to go back to the cats library for this one and use cats.Apply which
+needs an implementation of
+
+```
+// For our purposes F[_] will be Car[_]
+def ap[A,B](ff: F[A => B](fa: F[A]): F[B]
+```
+
+Also, because of how the library is composed, our Apply method will need our
+implementation of \cmap\s from earlier.
+
+
+--
+```
+import cats.Apply
+
+case class Car[A](occupant: A) {
+    def map[B](f: A => B): Car[B] = Car.lift(f)(this)
+}
+
+object Car {
+
+    implicit val carApply: Apply[Car] =
+        new Apply[Car] {
+            def ap[A,B](ff: Car[A => B])(fa: Car[A]): Car[B] =
+                ff.map(f => f(fa.occupant))
+
+            def map[A,B](fa: Car[A])(f: A => B): Car[B] = Car(f(fa.occupant))
+        }
+
+    implicit def carSemiGroup[A: Semigroup]: Semigroup[Car[A]] =
+        new Semigroup[Car[A]] {
+            def combine(a: Car[A], b: Car[A]): Car[A] = Car(a.occupant |+| b.occupant)
+        }
+
+    def lift[A,B](f: A => B): Car[A] => Car[B] = carApply.lift(f)
+}
+```
+
+---
+| \mBuying a FABulious snack in traffic
+
+```
+val dave = Person("Dave", 24, 10.00)
+val apples = Apples(10, 1.00, "KS944RUR")
+
+val trafficDave = Car(dave)
+val trafficApples = Car(apples)
+
+// Because of Scala syntax, Apply works a lot like `map`.  You put the
+// arguments first and then the plain function.
+
+val result1 =
+    Apply[Car].map2(trafficDave, trafficApples)((p, a) => buySnack(p, a, 3))
+
+val result2 =
+    Apply[Car].map3(trafficDave, trafficApples, Car(3))(buySnack _)
+
+```
+
+---
+| \mAn arrow through the heart of our plain fun
+
+Sometimes you can't help yourself.  You have to write functions that start
+out with plain parameters and ends up returning something in a context[1].
+
+```
+def buyCar(p: Person): Car[Person] = Car(p)
+
+case class Parent(name: String, child: Person)
+
+val parentEve = Parent("Eve", child = Person("Sam", 18, 10.00))
+val carSam = buyCar(parentEve.child)
+```
+
+
+--
+How would we work with such functions if we are already in traffic?
+
+```
+val carParentEve = Car(Parent("Eve", child = Person("Sam", 18, 10.00)))
+val carSam = carParentEve.map(parent => buyCar(parent.child))    // Car[Car[Person]]  ???
+```
+
+
+--
+This won't do at all.  We need some way to collapse nested Cars since
+"Things-moving-through-traffic moving through traffic" isn't what we want
+to model.
+
+
+
+
+
+
+
+
+
+[1] Functions of the form \cA => F[B]\s are called Kleisli Arrows.
+Interestingly these arrows compose: \c(A => F[B]) => (B => F[C]) => (A => F[C])\s.
+
+---
+| \mBe a joiner
+
+We need a way to flatten these nested Cars.  (Historically this operation was named \cjoin\s.)
+Using it we can \cmap\s then \cflatten\s (where Scala gets the name \cflatMap\s).
+
+```
+case class Car[A](occupant: A) {
+    def map[B](f: A => B): Car[B] = Car.lift(f)(this)
+
+    def flatMap[B](f: A => Car[B]): Car[B] = {
+      val carCar = map(f)
+      Car.flatten(carCar)
+    }
+}
+
+object Car {
+
+    implicit val carApply: Apply[Car] =
+        new Apply[Car] {
+            def ap[A,B](ff: Car[A => B])(fa: Car[A]): Car[B] =
+                ff.map(f => f(fa.occupant))
+
+            def map[A,B](fa: Car[A])(f: A => B): Car[B] = Car(f(fa.occupant))
+        }
+
+    implicit def carSemiGroup[A: Semigroup]: Semigroup[Car[A]] =
+        new Semigroup[Car[A]] {
+            def combine(a: Car[A], b: Car[A]): Car[A] = Car(a.occupant |+| b.occupant)
+        }
+
+    def lift[A,B](f: A => B): Car[A] => Car[B] = carApply.lift(f)
+
+    def flatten[A](carCar: Car[Car[A]]): Car[A] = carCar.occupant
+}
+
+def buyCar(p: Person): Car[Person] = Car(p)
+
+val carParentEve = Car(Parent("Eve", child = Person("Sam", 18, 10.00)))
+val carSam = carParentEve.flatMap(parent => buyCar(parent.child))
+```
+
+---
+| \gResources
+
+
+\yCats\s
+
+  Cats Library
+    * https://typelevel.org/cats/
+
+\yYoutube\s
+
+  Functional Programming with Effects
+    * https://youtu.be/po3wmq4S15A
+
+  A Small (Real) Example of the Reader and Writer Monads
+    * https://underscore.io/blog/posts/2014/07/27/readerwriterstate.html
+
+  Options in Futures, how to unsuck them
+    * https://youtu.be/hGMndafDcc8
+
+\ySlide Software\s
+
+  REPLesent
+    * https://github.com/marconilanna/REPLesent
+---
+| \mThe End

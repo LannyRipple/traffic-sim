@@ -1,0 +1,2 @@
+val repl = REPLesent(slideCounter = true, slideTotal = true, intp=$intp)
+import repl._
